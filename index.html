@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>i love you</title>
+    <style>
+        html,
+        body {
+            margin: 0;
+            padding: 0;
+            height: 100%;
+            background: #000;
+            overflow: hidden;
+            touch-action: none;
+            /* stops the page scrolling while you drag */
+            -webkit-user-select: none;
+            user-select: none;
+        }
+
+        canvas {
+            display: block;
+        }
+    </style>
+</head>
+
+<body>
+    <canvas id="c"></canvas>
+
+    <script>
+        const canvas = document.getElementById('c');
+        const ctx = canvas.getContext('2d');
+        let W, H, CX, CY, SCALE;
+
+        function resize() {
+            W = canvas.width = window.innerWidth;
+            H = canvas.height = window.innerHeight;
+            CX = W / 2;
+            CY = H / 2;
+            SCALE = Math.min(W, H) / 42;
+        }
+        resize();
+        window.addEventListener('resize', () => { resize(); buildParticles(); });
+
+        // Classic parametric heart curve
+        function heartPoint(t) {
+            const x = 16 * Math.pow(Math.sin(t), 3);
+            const y = -(13 * Math.cos(t) - 5 * Math.cos(2 * t)
+                - 2 * Math.cos(3 * t) - Math.cos(4 * t));
+            return { x, y };
+        }
+
+        // Point-in-heart test using the implicit heart equation
+        function insideHeart(x, y) {
+            const nx = x / 16;
+            const ny = -y / 13;
+            const a = nx * nx + ny * ny - 1;
+            return a * a * a - nx * nx * ny * ny * ny < 0;
+        }
+
+        const PHRASE = 'i love you';
+        let particles = [];
+
+        function buildParticles() {
+            particles = [];
+
+            // Rings of text tracing the heart shape, from outline to center
+            const layers = [
+                { scale: 1.00, count: 130, size: 1.00, alpha: 0.95 },
+                { scale: 0.88, count: 110, size: 0.92, alpha: 0.85 },
+                { scale: 0.76, count: 95, size: 0.85, alpha: 0.75 },
+                { scale: 0.64, count: 80, size: 0.78, alpha: 0.65 },
+                { scale: 0.52, count: 65, size: 0.72, alpha: 0.55 },
+                { scale: 0.40, count: 50, size: 0.66, alpha: 0.50 },
+                { scale: 0.28, count: 35, size: 0.60, alpha: 0.45 }
+            ];
+
+            layers.forEach(layer => {
+                for (let i = 0; i < layer.count; i++) {
+                    const t = (i / layer.count) * Math.PI * 2;
+                    const p = heartPoint(t);
+                    addParticle(
+                        (p.x * layer.scale) + (Math.random() - 0.5) * 1.2,
+                        (p.y * layer.scale) + (Math.random() - 0.5) * 1.2,
+                        layer.size,
+                        layer.alpha * (0.7 + Math.random() * 0.3)
+                    );
+                }
+            });
+
+            // Random fill inside the heart
+            const FILL = 260;
+            let attempts = 0, placed = 0;
+            while (placed < FILL && attempts < FILL * 30) {
+                attempts++;
+                const x = (Math.random() - 0.5) * 36;
+                const y = (Math.random() - 0.5) * 34;
+                if (insideHeart(x, y)) {
+                    addParticle(x, y, 0.5 + Math.random() * 0.5, 0.25 + Math.random() * 0.45);
+                    placed++;
+                }
+            }
+        }
+
+        function addParticle(hx, hy, size, alpha) {
+            // home position in screen space
+            const homeX = CX + hx * SCALE;
+            const homeY = CY + hy * SCALE;
+            particles.push({
+                homeX, homeY,
+                x: homeX, y: homeY,
+                vx: 0, vy: 0,
+                size,
+                alpha,
+                phase: Math.random() * Math.PI * 2,
+                flicker: 0.4 + Math.random() * 0.6,
+                // each word drifts on its own little orbit
+                driftR: 2 + Math.random() * 7,
+                driftSpeedX: 0.15 + Math.random() * 0.35,
+                driftSpeedY: 0.15 + Math.random() * 0.35,
+                hue: Math.random() * 20
+            });
+        }
+
+        buildParticles();
+
+        // ---------- Interaction (touch + mouse) ----------
+        const pointer = { x: -9999, y: -9999, active: false };
+
+        function setPointer(e) {
+            const t = e.touches ? e.touches[0] : e;
+            pointer.x = t.clientX;
+            pointer.y = t.clientY;
+            pointer.active = true;
+        }
+        function clearPointer() {
+            pointer.active = false;
+            pointer.x = -9999;
+            pointer.y = -9999;
+        }
+
+        canvas.addEventListener('touchstart', (e) => { e.preventDefault(); setPointer(e); }, { passive: false });
+        canvas.addEventListener('touchmove', (e) => { e.preventDefault(); setPointer(e); }, { passive: false });
+        canvas.addEventListener('touchend', clearPointer);
+        canvas.addEventListener('touchcancel', clearPointer);
+
+        canvas.addEventListener('mousemove', setPointer);
+        canvas.addEventListener('mouseleave', clearPointer);
+
+        const REPEL_RADIUS = () => Math.min(W, H) * 0.22; // finger influence area
+        // -------------------------------------------------
+
+        let time = 0;
+        function draw() {
+            time += 0.016;
+
+            // trailing fade for the glow effect
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.28)';
+            ctx.fillRect(0, 0, W, H);
+
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+
+            const radius = REPEL_RADIUS();
+
+            for (const p of particles) {
+                // gentle floating drift around the home spot
+                const driftX = Math.sin(time * p.driftSpeedX + p.phase) * p.driftR;
+                const driftY = Math.cos(time * p.driftSpeedY + p.phase * 1.7) * p.driftR;
+                const targetX = p.homeX + driftX;
+                const targetY = p.homeY + driftY;
+
+                // spring back toward the drifting target
+                p.vx += (targetX - p.x) * 0.02;
+                p.vy += (targetY - p.y) * 0.02;
+
+                // push away from finger / cursor
+                if (pointer.active) {
+                    const dx = p.x - pointer.x;
+                    const dy = p.y - pointer.y;
+                    const dist = Math.sqrt(dx * dx + dy * dy);
+                    if (dist < radius && dist > 0.01) {
+                        const force = (1 - dist / radius) * 3.2;
+                        p.vx += (dx / dist) * force;
+                        p.vy += (dy / dist) * force;
+                    }
+                }
+
+                // friction so it settles smoothly
+                p.vx *= 0.90;
+                p.vy *= 0.90;
+                p.x += p.vx;
+                p.y += p.vy;
+
+                // flickering glow
+                const flick = 0.75 + 0.25 * Math.sin(time * 2.0 * p.flicker + p.phase);
+                const a = Math.min(1, p.alpha * flick);
+
+                // words being pushed glow a bit brighter
+                const speed = Math.abs(p.vx) + Math.abs(p.vy);
+                const boost = Math.min(1, speed * 0.15);
+
+                const fontSize = Math.max(6, p.size * SCALE * 0.62);
+                ctx.font = `${fontSize}px "Segoe UI", Helvetica, Arial, sans-serif`;
+
+                const light = 45 + flick * 10 + boost * 25;
+                ctx.fillStyle = `hsla(${p.hue}, 100%, ${light}%, ${a})`;
+                ctx.shadowColor = `hsla(${p.hue}, 100%, 55%, ${a})`;
+                ctx.shadowBlur = 10 + boost * 15;
+
+                ctx.fillText(PHRASE, p.x, p.y);
+            }
+
+            ctx.shadowBlur = 0;
+            requestAnimationFrame(draw);
+        }
+
+        draw();
+    </script>
+</body>
+
+</html>
